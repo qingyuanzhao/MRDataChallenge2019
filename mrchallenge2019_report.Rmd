@@ -38,14 +38,7 @@ load("Data/data_for_daniel3.rda")
 
 # References 
 
-<<<<<<< HEAD
 # Questions for Qingyuan
-=======
-```{r}
-# testing github branching
-```
-
->>>>>>> parent of b715a9d... test branching
 
 1. Can we claim our method can be used to detect pleiotropy?
 
