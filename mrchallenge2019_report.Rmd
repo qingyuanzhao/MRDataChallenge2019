@@ -21,9 +21,14 @@ load("Data/data_for_daniel3.rda")
 
 # Motivation 
 
+
+
 # Data
 
 # Analysis methods
+
+- Most other methods have NOME assumption.
+
 
 # Results
 
@@ -33,7 +38,9 @@ load("Data/data_for_daniel3.rda")
 
 # References 
 
+# Questions for Qingyuan
 
+1. Can we claim our method can be used to detect pleiotropy?
 
 
 
