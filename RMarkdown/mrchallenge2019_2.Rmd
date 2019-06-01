@@ -7,6 +7,8 @@ output: html_document
 
 
 ```{r, echo = FALSE, warning = FALSE, message = FALSE}
+# Set directory to RMarkdown folder in github
+# (!!!!) Need to change this for it to run 
 setwd("~/Research/MR_Bayes/MRDataChallenge2019/RMarkdown")
 
 # load libraries
@@ -44,7 +46,7 @@ mr.raps.scatterplot(data, FALSE, num.snps = nrow(data))
 ```
 
 ```{r}
-sourceCpp("../MR-MCEM_submodule/EM.cpp")
+sourceCpp("../MR-MCEM/EM.cpp")
 
 X <- data[,"beta.exposure"]
 Y <- data[,"beta.outcome"]
