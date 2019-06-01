@@ -33,10 +33,6 @@ load("Data/data_for_daniel3.rda")
 
 # References 
 
-```{r}
-# testing github branching
-```
-
 
 
 
