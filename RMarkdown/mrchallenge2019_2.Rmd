@@ -58,11 +58,11 @@ seY <- data[,"se.outcome"]
 
 ```{r, cache=TRUE}
 # set initial values
-K <- 3
+K <- 2
 init_m_X <- mean(X)
 init_lambdaX <- sd(X)
 initPis <- rep(1/K, K)
-initMus <- c(-0.5,-0.1, 0.15)
+initMus <- c(-0.5, 0.2)
 initSds <- rep(0.15,K)
 initTau <- 1
 initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds,
