@@ -1,0 +1,118 @@
+---
+title: "MR Data Challenge 2019 - HDL/T2D"
+author: "Daniel Iong"
+date: "5/22/2019"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+setwd("~/MR_project/MRChallenge2019")
+
+# load libraries 
+library(MRChallenge2019)
+library(mr.raps)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppDist)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+```
+
+
+```{r, eval=FALSE}
+# generating data 
+
+# # only gives effect direction
+# amd_data <- read.table("../Data/Fritsche_2015_AdvancedAMD.txt.gz", header = TRUE)
+# remove(amd_data)
+
+# HDLc_data <- read.table("../Data/Summary_statistics_MAGNETIC_M.HDL.C.txt.gz", header = TRUE)
+# save(HDLc_data, file = "HDLc_data.RData")
+load("HDLc_data.RData")
+
+##### subset strong instruments, filter out NAs
+
+# use GLGC for selecting SNPs, NMR data as exposure
+strongInstr_dat <- Challenge_dat %>% filter(p_hdl < 5e-8) %>% filter(complete.cases(.))
+strongInstr_SNPs <- strongInstr_dat$rsid
+
+# exposure
+beta.exposure <- strongInstr_dat$beta_hdl
+se.exposure <- strongInstr_dat$se_hdl
+pval.exposure <- strongInstr_dat$p_hdl
+# beta.exposure <- as.numeric(as.character(HDLc_data$beta[HDLc_data$ID %in% strongInstr_SNPs]))
+# se.exposure <- as.numeric(as.character(HDLc_data$se[HDLc_data$ID %in% strongInstr_SNPs]))
+# pval.exposure <-as.numeric(as.character(HDLc_data$p.value[HDLc_data$ID %in% strongInstr_SNPs]))
+hdl_t2d_data <- data.frame(SNP = strongInstr_SNPs, beta.exposure, se.exposure, pval.exposure,
+                           beta.outcome = strongInstr_dat[,"beta_t2d"], se.outcome = strongInstr_dat[,"se_t2d"],
+                           pval.selection = strongInstr_dat[,"p_hdl"])
+save(hdl_t2d_data, file = "hdl_t2d_data.RData")
+```
+
+```{r}
+load("hdl_t2d_data.RData")
+mr.raps_res <- mr.raps(data = hdl_t2d_data)
+```
+
+```{r}
+modal.plot(data = hdl_t2d_data)
+```
+
+
+```{r}
+mr.raps.scatterplot(data = hdl_t2d_data, FALSE, num.snps = nrow(hdl_t2d_data))
+```
+
+
+```{r, cache=TRUE}
+X <- hdl_t2d_data[,"beta.exposure"]
+seX <- hdl_t2d_data[,"se.exposure"]
+Y <- hdl_t2d_data[,"beta.outcome"] 
+seY <- hdl_t2d_data[,"se.outcome"]
+
+sourceCpp("../EM2/Rcpp/EM.cpp")
+
+# set initial values 
+K <- 3
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-2, 0, 1)
+# initSds <- c(1,0.1,0.5)
+initSds <- rep(0.4, K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+# set algorithm parameters
+M <- 5 # determines rate at which MC sample size increases with each iteration
+max_Nsamples <- 1e6 # max. MC sample size 
+max_iters <- 100 # max. number of iterations 
+Nstart_MC <- 500 # starting MC sample size 
+eps <- 1e-2 # threshold for determining convergence 
+alpha <- 0.10
+gamma <- 0.10
+invGammaPrior <- FALSE
+prior_shape <- 1
+prior_scale <- (0.50)^2 * (prior_shape + 1)
+verbose <- TRUE
+equalSds <- FALSE
+overDispersedY <- FALSE # estimate tau (if FALSE, tau = 1)
+
+MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(hdl_t2d_data, FALSE, num.snps = nrow(hdl_t2d_data))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit$mus, color = "blue")
+```
+
+
+
+
+
+

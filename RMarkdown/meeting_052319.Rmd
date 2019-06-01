@@ -1,0 +1,234 @@
+---
+title: "Meeting"
+author: "Daniel Iong"
+date: "5/23/2019"
+output: html_document
+---
+
+# Updated Model 
+
+$$
+\begin{align*}
+\mu_{X_i} & \sim N(m_x, \lambda_x^2) \\
+\beta_i & \sim \sum_{k=1}^K \pi_k N(\mu_k, \sigma_k^2) \\
+\begin{pmatrix} X_i \\ Y_i \end{pmatrix} \Big| \beta_i, \mu_{X_i} & \sim N \Big( \begin{pmatrix} \mu_{X_i} \\ \beta_i \mu_{X_i} \end{pmatrix}, \begin{pmatrix} \sigma_{X_i}^2 & 0 \\ 0 & \tau^2 \sigma_{Y_i}^2 \end{pmatrix} \Big)
+\end{align*}
+$$
+
+
+
+```{r, message=FALSE, warning=FALSE}
+# load libraries 
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppDist)
+library(mr.raps)
+library(MASS)
+library(MRChallenge2019)
+library(ggplot2)
+library(dplyr)
+```
+
+
+```{r}
+# Set algorithm parameters
+M <- 5 # determines rate at which MC sample size increases with each iteration
+max_Nsamples <- 1e6 # max. MC sample size 
+max_iters <- 100 # max. number of iterations 
+Nstart_MC <- 500 # starting MC sample size 
+eps <- 1e-2 # threshold for determining convergence 
+alpha <- 0.10
+gamma <- 0.10
+prior_shape <- 1
+prior_scale <- (0.50)^2 * (prior_shape + 1)
+verbose <- FALSE
+```
+
+# HDL/CHD 
+
+```{r}
+setwd("~/MR_project/EM2/Rcpp")
+
+##### Load MR_EM function
+sourceCpp("EM.cpp")
+
+##### load HDL data
+hdl_data <- subset(lipid.cad, lipid == "hdl" & !restrict & gwas.selection == "teslovich_2010" & gwas.outcome == "cardiogramplusc4d_1000genome")
+
+##### restrict to strong instruments
+hdl_data_stronginstr <- subset(hdl_data, pval.selection < 5e-8)
+
+X <- hdl_data_stronginstr[["beta.exposure"]]
+Y <- hdl_data_stronginstr[["beta.outcome"]]
+seX <- hdl_data_stronginstr[["se.exposure"]]
+seY <- hdl_data_stronginstr[["se.outcome"]]
+```
+
+```{r}
+mr.raps_res <- mr.raps(hdl_data_stronginstr)
+```
+
+```{r}
+modal.plot(data = hdl_data_stronginstr)
+```
+
+```{r}
+mr.raps.scatterplot(data = hdl_data_stronginstr, FALSE, num.snps = nrow(hdl_data_stronginstr))
+```
+
+### K = 3, no overdispersion 
+
+```{r, cache=TRUE}
+K <- 3
+
+equalSds <- FALSE
+invGammaPrior <- FALSE
+overDispersedY <- FALSE # estimate tau (if FALSE, tau = 1)
+
+##### set initial values 
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-0.5, -0.25, 0.25)
+initSds <- rep(0.2,K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+MCEM_fit_K3 <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(hdl_data_stronginstr, FALSE, num.snps = nrow(hdl_data_stronginstr))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit_K3$mus, color = "blue")
+```
+
+```{r}
+MCEM_fit_K3$pis
+```
+
+```{r}
+MCEM_fit_K3$mus
+```
+
+```{r}
+MCEM_fit_K3$sds
+```
+
+# HDL/AMD
+
+```{r}
+setwd("~/MR_project/MRChallenge2019")
+sourceCpp("../EM2/Rcpp/EM.cpp")
+load("hdl_amd_data.RData")
+
+X <- hdl_amd_data[,"beta.exposure"]
+seX <- hdl_amd_data[,"se.exposure"]
+Y <- hdl_amd_data[,"beta.outcome"] 
+seY <- hdl_amd_data[,"se.outcome"]
+```
+
+```{r}
+mr.raps_res <- mr.raps(data = hdl_amd_data)
+```
+
+```{r}
+k <- 1
+modal.plot(data = hdl_amd_data, k = k)
+```
+
+```{r}
+mr.raps.scatterplot(data = hdl_amd_data, FALSE, num.snps = nrow(hdl_amd_data))
+```
+
+### K = 2
+
+```{r, cache=TRUE}
+
+invGammaPrior <- FALSE
+equalSds <- FALSE
+overDispersedY <- FALSE # estimate tau (if FALSE, tau = 1)
+
+# set initial values 
+K <- 2
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-2, 2)
+initSds <- rep(0.4,K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(hdl_amd_data, FALSE, num.snps = nrow(hdl_amd_data))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit$mus, color = "blue")
+```
+
+```{r}
+MCEM_fit$pis
+```
+
+```{r}
+MCEM_fit$mus
+```
+
+```{r}
+MCEM_fit$sds
+```
+
+### K = 3
+
+```{r, cache=TRUE}
+
+invGammaPrior <- FALSE
+equalSds <- FALSE
+overDispersedY <- FALSE # estimate tau (if FALSE, tau = 1)
+
+# set initial values 
+K <- 3
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-1.75, 0, 1.75)
+initSds <- rep(0.4,K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(hdl_amd_data, FALSE, num.snps = nrow(hdl_amd_data))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit$mus, color = "blue")
+```
+
+```{r}
+MCEM_fit$pis
+```
+
+```{r}
+MCEM_fit$mus
+```
+
+```{r}
+MCEM_fit$sds
+```
+
+
+
+
+

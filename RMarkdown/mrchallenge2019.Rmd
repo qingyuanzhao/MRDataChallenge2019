@@ -1,0 +1,229 @@
+---
+title: "MR Data Challenge 2019"
+author: "Daniel Iong"
+date: "5/20/2019"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# load libraries 
+library(MRChallenge2019)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppDist)
+library(mclust)
+library(mr.raps)
+library(MASS)
+library(dplyr)
+```
+
+```{r}
+setwd("~/MR_project/EM2/Rcpp")
+
+##### Load data from Qingyuan
+load("~/MR_project/Data/data_for_daniel2.rda")
+
+##### Load MR_EM function
+sourceCpp("EM.cpp")
+
+##### load HDL data
+hdl_data <- subset(lipid.cad, lipid == "hdl" & !restrict & gwas.selection == "teslovich_2010" & gwas.outcome == "cardiogramplusc4d_1000genome")
+
+##### restrict to strong instruments
+hdl_data_stronginstr <- subset(hdl_data, pval.selection < 5e-8)
+
+##### check if SNPs match 
+all(data$SNP == hdl_data_stronginstr$SNP)
+
+X <- data[["HDL.C.beta"]]
+Y <- hdl_data_stronginstr[["beta.outcome"]]
+seX <- data[["HDL.C.se"]]
+seY <- hdl_data_stronginstr[["se.outcome"]]
+```
+
+# Histogram - $\frac{\sigma_{X_i}}{\sigma_{Y_i}} \frac{Y_i}{X_i}$
+
+```{r}
+std_ratio <- (seX/seY) * (Y/X)
+hist(std_ratio, breaks = 20)
+
+```
+
+# Modal Plot
+
+```{r}
+modal.plot(b_exp = X, b_out = Y, se_exp = seX, se_out = seY)
+```
+
+# MC-EM Algorithm
+
+## K = 2, No overdispersion
+
+```{r, cache=TRUE}
+K <- 2
+
+##### set initial values 
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-0.4, 0.2)
+initSds <- rep(0.25,K)
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX)
+
+############### Set algorithm parameters 
+M <- 5 # determines rate at which MC sample size increases with each iteration
+max_Nsamples <- 1e6 # max. MC sample size 
+max_iters <- 100 # max. number of iterations 
+Nstart_MC <- 300 # starting MC sample size 
+eps <- 5e-3 # threshold for determining convergence 
+alpha <- 0.10
+gamma <- 0.10
+equalSds <- FALSE
+invGammaPrior <- FALSE
+prior_shape <- 0.6
+prior_scale <- (0.15)^2 * (prior_shape + 1)
+verbose = FALSE # print output at each iteration 
+
+MCEM_fit_K2 <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+MCEM_fit_K2$pis
+```
+
+```{r}
+MCEM_fit_K2$mus
+```
+
+```{r}
+MCEM_fit_K2$sds
+```
+
+
+```{r}
+hist(std_ratio, breaks = 30)
+for (k in 1:K) {
+  abline(v = MCEM_fit_K2$mus[k,1], col = 'red') # estimated mus in red
+  abline(v = initVals$mus[k], col = 'blue', lty = 3) # initial values for mus in blue
+  rect(MCEM_fit_K2$mus[k,1] - MCEM_fit_K2$sds[k,1], 0, MCEM_fit_K2$mus[k,1] + MCEM_fit_K2$sds[k,1], 20, col = rgb(0.5,0,0,alpha=0.25),
+       border = "transparent")
+}
+```
+
+## K = 2, overdispersion
+
+```{r, cache=TRUE}
+invGammaPrior <- TRUE
+prior_shape <- 2
+prior_scale <- (0.15)^2 * (prior_shape + 1)
+
+MCEM_fit_K2 <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+MCEM_fit_K2$pis
+```
+
+```{r}
+MCEM_fit_K2$mus
+```
+
+```{r}
+MCEM_fit_K2$sds
+```
+
+```{r}
+hist(std_ratio, breaks = 30)
+for (k in 1:K) {
+  abline(v = MCEM_fit_K2$mus[k,1], col = 'red') # estimated mus in red
+  abline(v = initVals$mus[k], col = 'blue', lty = 3) # initial values for mus in blue
+  rect(MCEM_fit_K2$mus[k,1] - MCEM_fit_K2$sds[k,1], 0, MCEM_fit_K2$mus[k,1] + MCEM_fit_K2$sds[k,1], 20, col = rgb(0.5,0,0,alpha=0.25),
+       border = "transparent")
+}
+```
+
+
+
+## K = 3, no overdispersion
+
+```{r, cache=TRUE}
+K <- 3
+
+invGammaPrior <- FALSE
+prior_shape <- 0.6
+prior_scale <- (0.15)^2 * (prior_shape + 1)
+
+##### set initial values 
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-1, 0, 1)
+initSds <- rep(0.3,K)
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX)
+
+MCEM_fit_K3 <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+
+```{r}
+MCEM_fit_K3$pis
+```
+
+```{r}
+MCEM_fit_K3$mus
+```
+
+```{r}
+MCEM_fit_K3$sds
+```
+
+
+```{r}
+hist(std_ratio, breaks = 30)
+for (k in 1:K) {
+  abline(v = MCEM_fit_K3$mus[k,1], col = 'red') # estimated mus in red
+  abline(v = initVals$mus[k], col = 'blue', lty = 3) # initial values for mus in blue
+  rect(MCEM_fit_K3$mus[k,1] - MCEM_fit_K3$sds[k,1], 0, MCEM_fit_K3$mus[k,1] + MCEM_fit_K3$sds[k,1], 20, col = rgb(0.5,0,0,alpha=0.25),
+       border = "transparent")
+}
+```
+
+<!-- ## K = 3, overdispersion -->
+
+<!-- ```{r} -->
+<!-- invGammaPrior <- TRUE -->
+<!-- prior_shape <- 0.75 -->
+<!-- prior_scale <- (0.10)^2 * (prior_shape + 1) -->
+
+<!-- MCEM_fit_K3 <- MR_EM(K, initVals, Nstart_MC, X, Y,  -->
+<!--                   seX, seY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape, -->
+<!--                   prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters,  -->
+<!--                   eps=eps, verbose = verbose) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- MCEM_fit_K3$pis -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- MCEM_fit_K3$mus -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- MCEM_fit_K3$sds -->
+<!-- ``` -->
+
+
+
+

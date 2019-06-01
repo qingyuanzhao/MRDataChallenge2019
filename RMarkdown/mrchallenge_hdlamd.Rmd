@@ -1,0 +1,159 @@
+---
+title: "MR Data Challenge 2019 - HDL/AMD"
+author: "Daniel Iong"
+date: "5/22/2019"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+setwd("~/MR_project/MRChallenge2019")
+
+# load libraries 
+library(MRChallenge2019)
+library(mr.raps)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppDist)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+```
+
+* Selection: GLGC (p-value < $5e-8$)
+* Exposure: NMR HDL.C
+* Outcome: AMD from **Challenge_dat**
+
+```{r, eval=FALSE}
+# generating data 
+
+# # only gives effect direction
+# amd_data <- read.table("../Data/Fritsche_2015_AdvancedAMD.txt.gz", header = TRUE)
+# remove(amd_data)
+
+HDLc_data <- read.table("../Data/Summary_statistics_MAGNETIC_M.HDL.C.txt.gz", header = TRUE)
+save(HDLc_data, file = "HDLc_data.RData")
+load("HDLc_data.RData")
+
+##### subset strong instruments, filter out NAs
+
+# use GLGC for selecting SNPs
+strongInstr_dat <- Challenge_dat %>% filter(p_hdl < 5e-8) %>% filter(complete.cases(.))
+strongInstr_SNPs <- strongInstr_dat$rsid
+
+# # use teslovich as exposure 
+# # only 19 SNPs 
+# hdl_data <- lipid.cad %>% filter(lipid == "hdl") %>% distinct(SNP, .keep_all = TRUE)
+# overlapSNPs <- intersect(hdl_data$SNP, strongInstr_SNPs)
+# strongInstr_dat <- strongInstr_dat %>% filter(rsid %in% overlapSNPs)
+# hdl_data_strongInstr <- hdl_data %>% filter(SNP %in% overlapSNPs)
+# beta.exposure <- hdl_data_strongInstr$beta.exposure
+# se.exposure <- hdl_data_strongInstr$se.exposure
+# pval.exposure <- hdl_data_strongInstr$pval.exposure
+# hdl_amd_data <- data.frame(SNP = hdl_data_strongInstr$SNP, beta.exposure, se.exposure, pval.exposure,
+#                            beta.outcome = strongInstr_dat[,"beta_amd"], se.outcome = strongInstr_dat[,"se_amd"],
+#                            pval.selection = strongInstr_dat[,"p_hdl"])
+
+# use NMR as exposure
+# beta.exposure <- strongInstr_dat$beta_hdl
+# se.exposure <- strongInstr_dat$se_hdl
+# pval.exposure <- strongInstr_dat$p_hdl
+beta.exposure <- as.numeric(as.character(HDLc_data$beta[HDLc_data$ID %in% strongInstr_SNPs]))
+se.exposure <- as.numeric(as.character(HDLc_data$se[HDLc_data$ID %in% strongInstr_SNPs]))
+pval.exposure <-as.numeric(as.character(HDLc_data$p.value[HDLc_data$ID %in% strongInstr_SNPs]))
+hdl_amd_data <- data.frame(SNP = strongInstr_SNPs, beta.exposure, se.exposure, pval.exposure,
+                           beta.outcome = strongInstr_dat[,"beta_amd"], se.outcome = strongInstr_dat[,"se_amd"],
+                           pval.selection = strongInstr_dat[,"p_hdl"])
+save(hdl_amd_data, file = "hdl_amd_data.RData")
+```
+
+```{r}
+load("hdl_amd_data.RData")
+```
+
+```{r}
+mr.raps_res <- mr.raps(data = hdl_amd_data)
+```
+
+# Modal Plot & Scatterplot
+
+```{r}
+k <- 1
+modal.plot(data = hdl_amd_data, k = k)
+```
+
+```{r}
+mr.raps.scatterplot(data = hdl_amd_data, FALSE, num.snps = nrow(hdl_amd_data))
+```
+
+# EM Algorithm
+
+## Updated Model 
+
+$$
+\begin{align*}
+\mu_{X_i} & \sim N(m_x, \lambda_x^2) \\
+\beta_i & \sim \sum_{k=1}^K \pi_k N(\mu_k, \sigma_k^2) \\
+\begin{pmatrix} X_i \\ Y_i \end{pmatrix} \Big| \beta_i, \mu_{X_i} & \sim N \Big( \begin{pmatrix} \mu_{X_i} \\ \beta_i \mu_{X_i} \end{pmatrix}, \begin{pmatrix} \sigma_{X_i}^2 & 0 \\ 0 & \tau^2 \sigma_{Y_i}^2 \end{pmatrix} \Big)
+\end{align*}
+$$
+
+* EM algorithm now returns estimates for $m_X$, $\lambda_X$, $\{\pi_k, \mu_k, \sigma_k\}$, $\tau$. 
+
+
+```{r, cache=TRUE}
+X <- hdl_amd_data[,"beta.exposure"]
+seX <- hdl_amd_data[,"se.exposure"]
+Y <- hdl_amd_data[,"beta.outcome"] 
+seY <- hdl_amd_data[,"se.outcome"]
+
+sourceCpp("../EM2/Rcpp/EM.cpp")
+
+# set initial values 
+K <- 3
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(-2,0, 1)
+initSds <- rep(0.5,K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds, 
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+# set algorithm parameters
+M <- 5 # determines rate at which MC sample size increases with each iteration
+max_Nsamples <- 1e6 # max. MC sample size 
+max_iters <- 100 # max. number of iterations 
+Nstart_MC <- 1000 # starting MC sample size 
+eps <- 1e-2 # threshold for determining convergence 
+alpha <- 0.10
+gamma <- 0.10
+invGammaPrior <- TRUE
+prior_shape <- 0.0001
+prior_scale <- (0.10)^2 * (prior_shape + 1)
+verbose <- TRUE
+equalSds <- FALSE
+overDispersedY <- FALSE # estimate tau (if FALSE, tau = 1)
+
+MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y, 
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters, 
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(hdl_amd_data, FALSE, num.snps = nrow(hdl_amd_data))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit$mus, color = "blue")
+```
+
+```{r}
+MCEM_fit$pis
+```
+
+```{r}
+MCEM_fit$mus
+```
+
+```{r}
+MCEM_fit$sds
+```
+
