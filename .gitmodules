@@ -1,3 +1,6 @@
 [submodule "MR-MCEM_submodule"]
 	path = MR-MCEM_submodule
 	url = git@github.com:danieliong/MR-MCEM.git
+[submodule "MR-MCEM"]
+	path = MR-MCEM
+	url = git@github.com:danieliong/MR-MCEM.git
