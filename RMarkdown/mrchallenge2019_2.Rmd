@@ -5,12 +5,13 @@ date: "5/29/2019"
 output: html_document
 ---
 
-
-```{r, echo = FALSE, warning = FALSE, message = FALSE}
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
 # Set directory to RMarkdown folder in github
 # (!!!!) Need to change this for it to run 
 setwd("~/Research/MR_Bayes/MRDataChallenge2019/RMarkdown")
+```
 
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
 # load libraries
 library(Rcpp)
 library(RcppArmadillo)
@@ -142,21 +143,6 @@ beta_est <- rowSums(W * beta_samps) / rowSumW
 
 ```{r}
 hist(beta_est, breaks = 30)
-```
-
-```{r, echo = FALSE, eval= FALSE}
-# ```{r}
-# pos_beta_ind <- which(beta_est > 0)
-# pos_beta_ind
-# beta_est[pos_beta_ind]
-# ```
-# 
-# ```{r}
-# pos_beta_SNPs <- data$SNP[pos_beta_ind]
-# data.pos_beta <- combined.data %>% filter(SNP %in% pos_beta_SNPs)
-# data.pos_beta$pval_m_ldl_c_kettunen
-# ```
-# * Two of the SNPs with positive $\hat{\beta}_i$ are highly associated with large LDL cholesterol.  
 ```
 
 # Heatmap 
