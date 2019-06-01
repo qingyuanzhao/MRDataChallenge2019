@@ -1,0 +1,233 @@
+---
+title: "MR Data Challenge 2019"
+author: "Daniel Iong"
+date: "5/29/2019"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Set directory to RMarkdown folder in github
+# (!!!!) Need to change this for it to run 
+setwd("~/Research/MR_Bayes/MRDataChallenge2019/RMarkdown")
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+# load libraries
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppDist)
+library(mr.raps)
+library(dplyr)
+library(ggplot2)
+```
+
+* **Selection**: Teslovich
+* **Exposure**: LDL Kettunen
+* **Outcome**: Cardiogram CAD 
+
+```{r}
+# load data 
+load("../Data/data_for_daniel3.rda")
+
+data <- as.data.frame(combined.data[, c("SNP", "pval_ldl_teslovich",
+                          "beta_ldl_willer_mc", "se_ldl_willer_mc",
+                          "beta_cad", "se_cad")])
+names(data) <- c("SNP", "pval.selection",
+                 "beta.exposure", "se.exposure",
+                 "beta.outcome", "se.outcome")
+data <- subset(data, pval.selection < 1e-4)
+```
+
+```{r}
+mr.raps(data = data)
+```
+
+```{r}
+mr.raps.scatterplot(data, FALSE, num.snps = nrow(data))
+```
+
+```{r}
+sourceCpp("../MR-MCEM/EM.cpp")
+
+X <- data[,"beta.exposure"]
+Y <- data[,"beta.outcome"]
+seX <- data[,"se.exposure"]
+seY <- data[,"se.outcome"]
+```
+
+
+```{r, cache=TRUE}
+# set initial values
+K <- 2
+init_m_X <- mean(X)
+init_lambdaX <- sd(X)
+initPis <- rep(1/K, K)
+initMus <- c(0.10, 0.8)
+initSds <- rep(0.2,K)
+initTau <- 1
+initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds,
+                 "m_X" = init_m_X, "lambdaX" = init_lambdaX, "tau" = initTau)
+
+# set algorithm parameters
+M <- 5 # determines rate at which MC sample size increases with each iteration
+max_Nsamples <- 1e6 # max. MC sample size
+max_iters <- 100 # max. number of iterations
+Nstart_MC <- 300 # starting MC sample size
+eps <- 1e-2 # threshold for determining convergence
+alpha <- 0.10
+gamma <- 0.10
+prior_shape <- 1
+prior_scale <- (0.10)^2 * (prior_shape + 1)
+
+invGammaPrior <-FALSE
+equalSds <- FALSE
+overDispersedY <- FALSE
+verbose <- FALSE
+
+MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y,
+                  seX, seY, overDispersedY = overDispersedY, equalSds = equalSds, invGammaPrior = invGammaPrior, prior_shape = prior_shape,
+                  prior_scale = prior_scale, M = M, max_Nsamples = max_Nsamples, max_iters = max_iters,
+                  eps=eps, verbose = verbose)
+```
+
+```{r}
+mr.raps_scatter <- mr.raps.scatterplot(data, FALSE, num.snps = nrow(data))
+mr.raps_scatter + geom_abline(intercept = 0, slope = MCEM_fit$mus, color = "blue")
+```
+
+```{r}
+MCEM_fit$pis
+```
+
+```{r}
+MCEM_fit$mus
+```
+
+```{r}
+MCEM_fit$sds
+```
+
+```{r}
+# sample from posterior given the above estimates 
+post_impt_samples <- sampleLatentVarPost(100000, X, Y, seX, seY, MCEM_fit)
+W <- post_impt_samples$W
+rowSumW <- rowSums(W)
+muX_samps <- post_impt_samples$muX_samps
+beta_samps <- post_impt_samples$beta_samps
+prob_samps <- post_impt_samples$alpha_samps
+```
+
+```{r}
+beta_resamps <- matrix(NA, nrow = nrow(beta_samps), ncol = ncol(beta_samps))
+for (i in 1:nrow(data)) {
+  beta_resamps[i,] <- sample(beta_samps[i,], ncol(beta_resamps), prob = (W[i,]/rowSumW[i]), replace=TRUE)
+}
+rownames(beta_resamps) <- data$SNP
+beta_samps <- beta_resamps
+```
+
+```{r}
+# Estimate P(Z_i = k | Xi, Yi, estimates)
+# Z_i = component \beta_i belongs to
+prob_est <- matrix(NA, nrow = nrow(data), ncol = K)
+for (k in 1:K) {
+  prob_est[,k] <- rowSums(W * prob_samps[,,k]) / rowSumW
+}
+
+# Estimate E(\beta_i | Xi, Yi, estimates)
+beta_est <- rowSums(W * beta_samps) / rowSumW
+```
+
+
+# Estimates of $E(\beta_i | X_i, Y_i, \hat{\theta})$ - $\hat{\beta}_i$
+
+```{r}
+hist(beta_est, breaks = 30)
+```
+
+# Heatmap 
+
+```{r}
+library(reshape2)
+library(gplots)
+
+pval.mtx <- combined.data[,colnames(combined.data)[seq(39,492, by = 3)]]
+rownames(pval.mtx) <- combined.data$SNP
+
+# colnames(pval.mtx) <-
+#   sapply(colnames(pval.mtx), function(s) {a <- strsplit(s, "_")[[1]];
+#   paste(a[c(-1,-length(a))], collapse = "_")})
+pval.mtx2 <- log(data.matrix(pval.mtx[data$SNP[order(beta_est)],]), 10)
+pval.mtx2 <- pval.mtx2[, grep("kettunen", colnames(pval.mtx2))]
+colnames(pval.mtx2) <-
+    sapply(colnames(pval.mtx2), function(s) {a <- strsplit(s, "_")[[1]];
+                                             paste(a[c(-1,-length(a))], collapse = "_")})
+
+beta.mtx <- data.matrix(combined.data[,grep("^(beta).*(kettunen)$", colnames(combined.data))])
+rownames(beta.mtx) <- combined.data$SNP
+beta.mtx <- beta.mtx[data$SNP[order(beta_est)],]
+colnames(beta.mtx) <-
+    sapply(colnames(beta.mtx), function(s) {a <- strsplit(s, "_")[[1]];
+                                             paste(a[c(-1,-length(a))], collapse = "_")})
+beta.mtx <- beta.mtx * sign(beta.mtx[,"hdl_c"])
+
+beta_q5 <- apply(beta_samps, 1, quantile, probs = 0.05)
+beta_q95 <- apply(beta_samps, 1, quantile, probs = 0.95)
+beta_q50 <- apply(beta_samps, 1, quantile, probs = 0.5)
+
+ordered.SNPs <- rownames(beta_samps)[order(beta_q50)]
+
+beta_q5 <- beta_q5[ordered.SNPs]
+beta_q50 <- beta_q50[ordered.SNPs]
+beta_q95 <- beta_q95[ordered.SNPs]
+# pval.mtx2 <- pval.mtx2[ordered.SNPs, ]
+pval.mtx2 <- -pval.mtx2[ordered.SNPs,] * sign(beta.mtx[ordered.SNPs,])
+pval_q1 <- quantile(pval.mtx2, 0.01)
+pval_q50 <- quantile(pval.mtx2, 0.50)
+pval_q99 <- quantile(pval.mtx2, 0.99)
+
+df <- melt(as.matrix(pval.mtx2))
+
+traits <- c(
+    "vldl_d",
+    "xxl_vldl_l", "xxl_vldl_p", "xxl_vldl_pl", "xxl_vldl_tg",
+    "xl_vldl_l", "xl_vldl_p", "xl_vldl_pl", "xl_vldl_tg",
+    "l_vldl_c", "l_vldl_ce", "l_vldl_fc", "l_vldl_l", "l_vldl_p", "l_vldl_pl", "l_vldl_tg",
+    "m_vldl_c", "m_vldl_ce", "m_vldl_fc", "m_vldl_l", "m_vldl_p", "m_vldl_pl", "m_vldl_tg",
+    "s_vldl_fc", "s_vldl_l", "s_vldl_p", "s_vldl_pl", "s_vldl_tg",
+    "xs_vldl_l", "xs_vldl_p", "xs_vldl_pl", "xs_vldl_tg",
+    "apob", "ldl_c", "ldl_d",
+    "l_ldl_c", "l_ldl_ce", "l_ldl_fc", "l_ldl_l", "l_ldl_p", "l_ldl_pl",
+    "m_ldl_c", "m_ldl_ce", "m_ldl_l", "m_ldl_p", "m_ldl_pl",
+    "s_ldl_c", "s_ldl_l", "s_ldl_p",
+    "idl_c", "idl_fc", "idl_l", "idl_p", "idl_pl", "idl_tg",
+    "apoa1", "hdl_c", "hdl_d",
+    "l_hdl_c",
+    "xl_hdl_c", "xl_hdl_ce", "xl_hdl_fc", "xl_hdl_l", "xl_hdl_p", "xl_hdl_pl", "xl_hdl_tg",
+    "l_hdl_ce", "l_hdl_fc", "l_hdl_l", "l_hdl_p", "l_hdl_pl",
+    "m_hdl_c", "m_hdl_ce", "m_hdl_fc","m_hdl_l", "m_hdl_p", "m_hdl_pl",
+    "s_hdl_l", "s_hdl_p", "s_hdl_tg")
+df$Var2 <- factor(df$Var2, rev(traits))
+
+library(ggplot2)
+p1 <- ggplot(df) + aes(x = Var1, y = Var2, fill = pmin(pmax(value, pval_q1), pval_q99)) + geom_tile() + scale_fill_gradient2(low="red", high="blue", midpoint = pval_q50) + theme_minimal() + theme(axis.text.x = element_text(angle = 90), legend.title = element_blank(), legend.position = "top") + xlab("") + ylab("")
+
+dfq <- data.frame(cbind(beta_q5, beta_q50, beta_q95))
+dfq$SNP <- factor(rownames(dfq), ordered.SNPs)
+
+p2 <- ggplot(dfq) + aes(x = SNP, y = beta_q50, ymin = beta_q5, ymax = beta_q95) + geom_point() + geom_errorbar() + xlab("") + ylab("") + theme_minimal() + theme(axis.text.x = element_blank())
+
+library(cowplot)
+plot_grid(p1, p2, ncol = 1, align = "v", rel_heights = c(4, 1))
+```
+
+
+
+
+
+
+
+
+
+
+
