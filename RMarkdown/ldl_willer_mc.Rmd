@@ -22,7 +22,7 @@ library(ggplot2)
 ```
 
 * **Selection**: Teslovich
-* **Exposure**: LDL Kettunen
+* **Exposure**: LDL Willer MC
 * **Outcome**: Cardiogram CAD 
 
 ```{r}
