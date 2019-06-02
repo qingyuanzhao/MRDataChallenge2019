@@ -81,7 +81,7 @@ prior_scale <- (0.10)^2 * (prior_shape + 1)
 
 invGammaPrior <-FALSE
 equalSds <- FALSE
-overDispersedY <- FALSE
+overDispersedY <- TRUE
 verbose <- FALSE
 
 MCEM_fit <- MR_EM(K, initVals, Nstart_MC, X, Y,
@@ -105,6 +105,10 @@ MCEM_fit$mus
 
 ```{r}
 MCEM_fit$sds
+```
+
+```{r}
+MCEM_fit$tau
 ```
 
 ```{r}
@@ -145,6 +149,9 @@ beta_est <- rowSums(W * beta_samps) / rowSumW
 hist(beta_est, breaks = 30)
 ```
 
+
+
+
 # Heatmap 
 
 ```{r}
@@ -162,14 +169,21 @@ pval.mtx2 <- pval.mtx2[, grep("kettunen", colnames(pval.mtx2))]
 colnames(pval.mtx2) <-
     sapply(colnames(pval.mtx2), function(s) {a <- strsplit(s, "_")[[1]];
                                              paste(a[c(-1,-length(a))], collapse = "_")})
+```
 
+```{r}
+# column names with tg in it 
+colnames(pval.mtx2)[grep("tg", colnames(pval.mtx2))]
+```
+
+```{r}
 beta.mtx <- data.matrix(combined.data[,grep("^(beta).*(kettunen)$", colnames(combined.data))])
 rownames(beta.mtx) <- combined.data$SNP
 beta.mtx <- beta.mtx[data$SNP[order(beta_est)],]
 colnames(beta.mtx) <-
     sapply(colnames(beta.mtx), function(s) {a <- strsplit(s, "_")[[1]];
                                              paste(a[c(-1,-length(a))], collapse = "_")})
-beta.mtx <- beta.mtx * sign(beta.mtx[,"hdl_c"])
+beta.mtx <- beta.mtx * sign(beta.mtx[,"idl_tg"])
 
 beta_q5 <- apply(beta_samps, 1, quantile, probs = 0.05)
 beta_q95 <- apply(beta_samps, 1, quantile, probs = 0.95)
