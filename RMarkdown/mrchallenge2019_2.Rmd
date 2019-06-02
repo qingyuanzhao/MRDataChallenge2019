@@ -58,11 +58,11 @@ seY <- data[,"se.outcome"]
 
 ```{r, cache=TRUE}
 # set initial values
-K <- 2
+K <- 3
 init_m_X <- mean(X)
 init_lambdaX <- sd(X)
 initPis <- rep(1/K, K)
-initMus <- c(-0.5, 0.2)
+initMus <- c(-0.5,-0.1, 0.15)
 initSds <- rep(0.15,K)
 initTau <- 1
 initVals <- list("pis" = initPis, "mus" = initMus, "sds" = initSds,
@@ -138,6 +138,10 @@ for (k in 1:K) {
 beta_est <- rowSums(W * beta_samps) / rowSumW
 ```
 
+```{r}
+pos_mode_SNPs <- which(apply(prob_est, 1, which.max) == 3)
+as.character(data$SNP[pos_mode_SNPs])
+```
 
 # Estimates of $E(\beta_i | X_i, Y_i, \hat{\theta})$ - $\hat{\beta}_i$
 
@@ -221,7 +225,10 @@ library(cowplot)
 plot_grid(p1, p2, ncol = 1, align = "v", rel_heights = c(4, 1))
 ```
 
-
+```{r}
+rownames(prob_est) <- data$SNP
+prob_est[ordered.SNPs,]
+```
 
 
 

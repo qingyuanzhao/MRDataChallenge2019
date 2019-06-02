@@ -21,6 +21,7 @@ load("Data/data_for_daniel3.rda")
 
 # Motivation 
 
+- 
 
 
 # Data
@@ -34,7 +35,7 @@ load("Data/data_for_daniel3.rda")
 
 # Technical Appendix 
 
-# Software 
+# Software
 
 # References 
 
